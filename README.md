@@ -63,22 +63,22 @@ flowchart TD
         end
     end
 
-    UI -->|1. Upload & Authentication (JWT)| API
-    API -->|2. Forward Media File| Flask
+    UI -->|"1. Upload & Authentication (JWT)"| API
+    API -->|"2. Forward Media File"| Flask
     
     Flask --> CLIP
     Flask --> YOLO
     Flask --> BLIP
-    CLIP -->|Predictions| BART
-    YOLO -->|Detected Objects| BART
-    BLIP -->|Base Caption| BART
+    CLIP -->|"Predictions"| BART
+    YOLO -->|"Detected Objects"| BART
+    BLIP -->|"Base Caption"| BART
     
-    BART -->|3. Comprehensive Story & Metadata| Flask
-    Flask -->|4. Analysis Results (JSON)| API
+    BART -->|"3. Comprehensive Story & Metadata"| Flask
+    Flask -->|"4. Analysis Results (JSON)"| API
     
-    API -->|5. Save Records| DB
-    API -->|6. Save Media File| Storage
-    API -->|7. Return Response| UI
+    API -->|"5. Save Records"| DB
+    API -->|"6. Save Media File"| Storage
+    API -->|"7. Return Response"| UI
 ```
 
 ### API Communication Flow
