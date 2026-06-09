@@ -4,6 +4,7 @@ import json
 import glob
 import torch
 import tempfile
+import requests
 from PIL import Image
 from collections import Counter
 from transformers import CLIPModel, CLIPProcessor, pipeline
@@ -17,6 +18,28 @@ def download_model_if_missing(local_path, url):
     os.makedirs(os.path.dirname(local_path), exist_ok=True)
     if not os.path.exists(local_path):
         print(f"📥 Downloading {local_path} from Google Drive...")
+        if "drive.google.com" in url or "docs.google.com" in url or "google.com/uc" in url:
+            import urllib.parse as urlparse
+            parsed = urlparse.urlparse(url)
+            params = urlparse.parse_qs(parsed.query)
+            file_id = params.get('id', [None])[0]
+            if file_id:
+                session = requests.Session()
+                download_url = "https://docs.google.com/uc?export=download"
+                response = session.get(download_url, params={'id': file_id}, stream=True)
+                token = None
+                for key, value in response.cookies.items():
+                    if key.startswith('download_warning'):
+                        token = value
+                        break
+                if token:
+                    response = session.get(download_url, params={'id': file_id, 'confirm': token}, stream=True)
+                with open(local_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=32768):
+                        if chunk:
+                            f.write(chunk)
+                print(f"✅ Downloaded: {local_path}")
+                return
         response = requests.get(url)
         with open(local_path, 'wb') as f:
             f.write(response.content)
@@ -54,17 +77,32 @@ CLIP_MODEL_PATH = os.path.join('models', 'visual_clip_classifier.pt')
 YOLO_MODEL_PATH = os.path.join('models', 'evidence_best_epoch50.pt')
 
 # Download model files if missing
-download_model_if_missing(CLIP_MODEL_PATH, "https://drive.google.com/uc?id=1mp2N-sw4U1XtEujzluOEWaGkW8P8HZ47")
-download_model_if_missing(YOLO_MODEL_PATH, "https://drive.google.com/uc?id=1TVM2b8VBk_k1AO_E6jXAmj4niVhhXgob")
+try:
+    download_model_if_missing(CLIP_MODEL_PATH, "https://drive.google.com/uc?id=1mp2N-sw4U1XtEujzluOEWaGkW8P8HZ47")
+    download_model_if_missing(YOLO_MODEL_PATH, "https://drive.google.com/uc?id=1TVM2b8VBk_k1AO_E6jXAmj4niVhhXgob")
+except Exception as e:
+    print(f"⚠️ Warning: Could not download models: {e}")
 
 # Load models (CLIP, YOLO, BLIP, BART)...
-clip_base = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-visual_clip_model = VisualCLIPClassifier(clip_base, num_classes=5)
-visual_clip_model.load_state_dict(torch.load(CLIP_MODEL_PATH, map_location="cpu"))
-visual_clip_model.eval()
 clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+try:
+    clip_base = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+    visual_clip_model = VisualCLIPClassifier(clip_base, num_classes=5)
+    visual_clip_model.load_state_dict(torch.load(CLIP_MODEL_PATH, map_location="cpu"))
+    visual_clip_model.eval()
+    print("✅ Custom CLIP model loaded successfully.")
+except Exception as e:
+    print(f"⚠️ Warning: Failed to load custom CLIP model ({e}). Initializing fallback CLIP classifier with random weights.")
+    clip_base = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+    visual_clip_model = VisualCLIPClassifier(clip_base, num_classes=5)
+    visual_clip_model.eval()
 
-yolo_model = YOLO(YOLO_MODEL_PATH)
+try:
+    yolo_model = YOLO(YOLO_MODEL_PATH)
+    print("✅ Custom YOLO model loaded successfully.")
+except Exception as e:
+    print(f"⚠️ Warning: Failed to load custom YOLO model ({e}). Initializing fallback public YOLOv8n.")
+    yolo_model = YOLO("yolov8n.pt")
 
 blip_processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
 blip_model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base").eval()
@@ -83,11 +121,11 @@ def classify_with_yolo_override(image_path):
     with torch.no_grad(): logits = visual_clip_model(inputs["pixel_values"])
     clip_pred = id2label[logits.argmax().item()]
     yolo_results = yolo_model(image_path, verbose=False)[0]
-    yolo_labels = [evidence_labels[int(cls)] for cls in yolo_results.boxes.cls.tolist()] if yolo_results.boxes else []
+    yolo_labels = [yolo_model.names.get(int(cls), "unknown") for cls in yolo_results.boxes.cls.tolist()] if yolo_results.boxes else []
     found_objects_details = []
     if yolo_results.boxes:
         for box in yolo_results.boxes:
-            found_objects_details.append({"object": evidence_labels.get(int(box.cls[0]), "unknown"),"match": round(float(box.conf[0]) * 100),"box": [int(c) for c in box.xyxy[0].tolist()]})
+            found_objects_details.append({"object": yolo_model.names.get(int(box.cls[0]), "unknown"),"match": round(float(box.conf[0]) * 100),"box": [int(c) for c in box.xyxy[0].tolist()]})
     final_label = clip_pred
     if "gun" in yolo_labels or "knife" in yolo_labels: final_label = "robbery"
     elif "fighting" in yolo_labels: final_label = "fighting"

@@ -12,8 +12,8 @@ dotenv.config();
 const app = express();
 
 // --- SETUP CORS MIDDLEWARE ---
-// This will allow requests from your React app on localhost:3000
-app.use(cors({ origin: 'http://localhost:3000' }));
+// Allow all origins for robust local development (supports localhost, 127.0.0.1, and local IP)
+app.use(cors());
 
 app.use(express.json());
 

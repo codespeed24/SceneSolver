@@ -11,5 +11,5 @@ Pillow==10.1.0
 Flask==3.0.0
 python-multipart==0.0.6
 opencv-python-headless==4.8.1.78
-gunicorn==21.2.0  # ← Added for production server
-requests==2.31.0  # ← Needed for downloading model files
+gunicorn==21.2.0  # Added for production server
+requests==2.31.0  # Needed for downloading model files
