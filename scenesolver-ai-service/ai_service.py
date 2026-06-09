@@ -20,20 +20,41 @@ def download_model_if_missing(local_path, url):
         print(f"📥 Downloading {local_path} from Google Drive...")
         if "drive.google.com" in url or "docs.google.com" in url or "google.com/uc" in url:
             import urllib.parse as urlparse
+            import re
             parsed = urlparse.urlparse(url)
             params = urlparse.parse_qs(parsed.query)
             file_id = params.get('id', [None])[0]
             if file_id:
                 session = requests.Session()
                 download_url = "https://docs.google.com/uc?export=download"
-                response = session.get(download_url, params={'id': file_id}, stream=True)
-                token = None
-                for key, value in response.cookies.items():
-                    if key.startswith('download_warning'):
-                        token = value
-                        break
-                if token:
-                    response = session.get(download_url, params={'id': file_id, 'confirm': token}, stream=True)
+                response = session.get(download_url, params={'id': file_id})
+                
+                # Check for confirm token and uuid in HTML form
+                confirm_match = re.search(r'name="confirm" value="([^"]+)"', response.text)
+                uuid_match = re.search(r'name="uuid" value="([^"]+)"', response.text)
+                
+                if confirm_match and uuid_match:
+                    confirm = confirm_match.group(1)
+                    uuid_val = uuid_match.group(1)
+                    dl_params = {
+                        'id': file_id,
+                        'export': 'download',
+                        'confirm': confirm,
+                        'uuid': uuid_val
+                    }
+                    response = session.get("https://drive.usercontent.google.com/download", params=dl_params, stream=True)
+                else:
+                    # Fallback to cookies warning check
+                    token = None
+                    for key, value in response.cookies.items():
+                        if key.startswith('download_warning'):
+                            token = value
+                            break
+                    if token:
+                        response = session.get(download_url, params={'id': file_id, 'confirm': token}, stream=True)
+                    else:
+                        response = session.get(download_url, params={'id': file_id}, stream=True)
+                
                 with open(local_path, 'wb') as f:
                     for chunk in response.iter_content(chunk_size=32768):
                         if chunk:
