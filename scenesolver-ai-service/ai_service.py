@@ -105,16 +105,24 @@ except Exception as e:
     print(f"⚠️ Warning: Could not download models: {e}")
 
 # Load models (CLIP, YOLO, BLIP, BART)...
-clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+# Helper to load from HuggingFace with local fallback
+def load_hf_component(loader_fn, model_name, *args, **kwargs):
+    try:
+        return loader_fn(model_name, *args, **kwargs)
+    except Exception as e:
+        print(f"⚠️ Network error while loading {model_name} ({e}). Retrying from local cache...")
+        return loader_fn(model_name, *args, local_files_only=True, **kwargs)
+
+clip_processor = load_hf_component(CLIPProcessor.from_pretrained, "openai/clip-vit-base-patch32")
 try:
-    clip_base = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+    clip_base = load_hf_component(CLIPModel.from_pretrained, "openai/clip-vit-base-patch32")
     visual_clip_model = VisualCLIPClassifier(clip_base, num_classes=5)
     visual_clip_model.load_state_dict(torch.load(CLIP_MODEL_PATH, map_location="cpu"))
     visual_clip_model.eval()
     print("✅ Custom CLIP model loaded successfully.")
 except Exception as e:
     print(f"⚠️ Warning: Failed to load custom CLIP model ({e}). Initializing fallback CLIP classifier with random weights.")
-    clip_base = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+    clip_base = load_hf_component(CLIPModel.from_pretrained, "openai/clip-vit-base-patch32")
     visual_clip_model = VisualCLIPClassifier(clip_base, num_classes=5)
     visual_clip_model.eval()
 
@@ -125,10 +133,14 @@ except Exception as e:
     print(f"⚠️ Warning: Failed to load custom YOLO model ({e}). Initializing fallback public YOLOv8n.")
     yolo_model = YOLO("yolov8n.pt")
 
-blip_processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
-blip_model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base").eval()
+blip_processor = load_hf_component(BlipProcessor.from_pretrained, "Salesforce/blip-image-captioning-base")
+blip_model = load_hf_component(BlipForConditionalGeneration.from_pretrained, "Salesforce/blip-image-captioning-base").eval()
 
-summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+try:
+    summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+except Exception as e:
+    print(f"⚠️ Network error loading summarization pipeline ({e}). Retrying from local cache...")
+    summarizer = pipeline("summarization", model="facebook/bart-large-cnn", local_files_only=True)
 
 print("✅ AI models loaded successfully.")
 

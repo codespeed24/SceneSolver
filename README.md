@@ -153,8 +153,21 @@ REACT_APP_API_URL=http://localhost:5000           # Express API gateway URL
 
 ### Prerequisites
 * **Node.js** (v18 or higher recommended)
-* **Python** (3.8 - 3.11 recommended)
+* **Python** (3.11 recommended, supports 3.8 - 3.13)
 * **MongoDB Server** (Active on local port `27017`)
+
+### Python Version Compatibility
+
+The AI service dependencies have been modernized to support Python versions up to 3.13. Below is the compatibility matrix:
+
+| Python Version | Compatibility Status | Notes |
+| :--- | :--- | :--- |
+| **Python 3.8 - 3.10** |  Supported | Compatible; legacy versions may require specific wheel matching. |
+| **Python 3.11** |  Recommended | **Default & recommended version** (pinned in `.python-version`). |
+| **Python 3.12** |  Supported | Fully compatible using upgraded packages. |
+| **Python 3.13** |  Supported | Fully compatible with modernized PyTorch (>=2.5.1) and Ultralytics (>=8.3.0). |
+| **Python >= 3.14** | ❌ Unsupported | Experimental/unsupported due to lack of stable downstream ML binary wheels. |
+
 
 ### Quick Start (Windows)
 Double-click `launch.bat` (or execute `.\launch.ps1` in PowerShell). This script will:

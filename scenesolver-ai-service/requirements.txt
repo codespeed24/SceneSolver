@@ -1,15 +1,15 @@
 # --- Core AI/ML Libraries ---
-torch==2.1.2
-torchvision==0.16.2
-torchaudio==2.1.2
-transformers==4.35.2
-ultralytics==8.0.229
-accelerate==0.25.0
-Pillow==10.1.0
+torch>=2.5.1
+torchvision>=0.20.1
+torchaudio>=2.5.1
+transformers>=4.45.0,<5.0.0
+ultralytics>=8.3.0
+accelerate>=0.30.0
+Pillow>=10.3.0
 
 # --- Web Service & API ---
-Flask==3.0.0
-python-multipart==0.0.6
-opencv-python-headless==4.8.1.78
-gunicorn==21.2.0  # Added for production server
-requests==2.31.0  # Needed for downloading model files
+Flask>=3.0.0
+python-multipart>=0.0.12
+opencv-python-headless>=4.9.0.80
+gunicorn>=22.0.0  # Added for production server
+requests>=2.31.0  # Needed for downloading model files
