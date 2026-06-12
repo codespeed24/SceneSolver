@@ -5,6 +5,7 @@ import glob
 import torch
 import tempfile
 import requests
+import re
 from PIL import Image
 from collections import Counter
 from transformers import CLIPModel, CLIPProcessor, pipeline
@@ -147,23 +148,90 @@ print("✅ AI models loaded successfully.")
 
 # === AI Processing Functions ===
 
+def clean_caption(caption):
+    text = caption
+    # 1. Remove dates like "on april 27, 2019", "on oct 10, 2021"
+    months = "(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)"
+    date_pattern = rf"\b(on\s+)?{months}\s+\d{{1,2}}(st|nd|rd|th)?(,\s*|\s+)\d{{4}}\b"
+    text = re.sub(date_pattern, "", text, flags=re.IGNORECASE)
+    
+    # 2. Remove years like "in 2019", "2019"
+    text = re.sub(r"\b(in\s+)?\d{4}\b", "", text)
+    
+    # 3. Remove specific heavily hallucinated locations (beirut, lebanon, etc.)
+    locations = ["beirut, lebanon", "beirut", "lebanon", "old town of beirut"]
+    for loc in locations:
+        text = re.sub(rf"\b(in|of|at)?\s*{loc}\b", "", text, flags=re.IGNORECASE)
+        
+    # 4. Clean up punctuation, trailing commas/spaces, double spaces
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\s*,\s*$", "", text)
+    text = re.sub(r"\s*\.\s*$", "", text)
+    text = text.strip()
+    return text
+
 def classify_with_yolo_override(image_path):
-    # This function remains unchanged
     image = Image.open(image_path).convert("RGB")
     inputs = clip_processor(images=image, return_tensors="pt")
-    with torch.no_grad(): logits = visual_clip_model(inputs["pixel_values"])
-    clip_pred = id2label[logits.argmax().item()]
+    with torch.no_grad():
+        logits = visual_clip_model(inputs["pixel_values"])
+        probs = torch.softmax(logits, dim=-1)[0]
+    
+    clip_pred_id = logits.argmax().item()
+    clip_pred = id2label[clip_pred_id]
+    clip_conf = probs[clip_pred_id].item() * 100
+    
     yolo_results = yolo_model(image_path, verbose=False)[0]
     yolo_labels = [yolo_model.names.get(int(cls), "unknown") for cls in yolo_results.boxes.cls.tolist()] if yolo_results.boxes else []
     found_objects_details = []
     if yolo_results.boxes:
         for box in yolo_results.boxes:
-            found_objects_details.append({"object": yolo_model.names.get(int(box.cls[0]), "unknown"),"match": round(float(box.conf[0]) * 100),"box": [int(c) for c in box.xyxy[0].tolist()]})
-    final_label = clip_pred
-    if "gun" in yolo_labels or "knife" in yolo_labels: final_label = "robbery"
-    elif "fighting" in yolo_labels: final_label = "fighting"
-    elif "fire" in yolo_labels or "smoke" in yolo_labels: final_label = "explosion"
-    return {"final_label": final_label, "clip_pred": clip_pred, "yolo_labels": yolo_labels, "found_objects_details": found_objects_details}
+            found_objects_details.append({
+                "object": yolo_model.names.get(int(box.cls[0]), "unknown"),
+                "match": round(float(box.conf[0]) * 100),
+                "box": [int(c) for c in box.xyxy[0].tolist()]
+            })
+            
+    # Redesigned override logic: if YOLO detects crime evidence, reflect it in the final classification
+    yolo_to_crime = {
+        "gun": "robbery",
+        "knife": "robbery",
+        "fighting": "fighting",
+        "fire": "explosion",
+        "smoke": "explosion",
+        "shoplifting": "shoplifting"
+    }
+    
+    crime_detections = [obj for obj in found_objects_details if obj["object"] in yolo_to_crime]
+    
+    if crime_detections:
+        # Sort by confidence score descending to prioritize the strongest evidence
+        crime_detections.sort(key=lambda x: x["match"], reverse=True)
+        top_detection = crime_detections[0]
+        final_label = yolo_to_crime[top_detection["object"]]
+        decision_reason = f"YOLO detected '{top_detection['object']}' ({top_detection['match']}% confidence) overriding CLIP prediction '{clip_pred}'"
+    else:
+        final_label = clip_pred
+        decision_reason = f"No overriding YOLO crime evidence detected. Retaining CLIP prediction '{clip_pred}'"
+        
+    # Console diagnostic logging
+    print("\n🔍 --- AI Inference Pipeline Diagnostics ---")
+    print(f"Raw CLIP Prediction: {clip_pred}")
+    print(f"Raw CLIP Confidence: {clip_conf:.2f}%")
+    print(f"YOLO Detections: {yolo_labels}")
+    print(f"YOLO Confidence Scores: {[obj['match'] for obj in found_objects_details]}")
+    print(f"Final Label Decision: {final_label}")
+    print(f"Reason for the decision: {decision_reason}")
+    print("🔍 -----------------------------------------\n")
+    
+    return {
+        "final_label": final_label,
+        "clip_pred": clip_pred,
+        "clip_conf": clip_conf,
+        "yolo_labels": yolo_labels,
+        "found_objects_details": found_objects_details,
+        "decision_reason": decision_reason
+    }
 
 def generate_summary(captions):
     # This function remains unchanged
@@ -201,8 +269,9 @@ def run_video_analysis(video_path, frame_skip=15):
                 all_yolo_objects.extend(yolo_result['found_objects_details'])
                 img = Image.open(temp_path).convert("RGB")
                 blip_inputs = blip_processor(images=img, return_tensors="pt")
-                blip_out = blip_model.generate(**blip_inputs, max_new_tokens=40)
-                captions.append(blip_processor.decode(blip_out[0], skip_special_tokens=True))
+                blip_out = blip_model.generate(**blip_inputs, max_new_tokens=40, num_beams=3)
+                raw_cap = blip_processor.decode(blip_out[0], skip_special_tokens=True)
+                captions.append(clean_caption(raw_cap))
             except Exception as frame_error:
                 print(f"Warning: Could not process frame {frame_idx}. Error: {frame_error}")
             finally:
@@ -264,8 +333,9 @@ def analyze_media():
             classification_results = classify_with_yolo_override(filepath)
             img = Image.open(filepath).convert("RGB")
             blip_inputs = blip_processor(images=img, return_tensors="pt")
-            blip_out = blip_model.generate(**blip_inputs, max_new_tokens=75)
-            caption = blip_processor.decode(blip_out[0], skip_special_tokens=True)
+            blip_out = blip_model.generate(**blip_inputs, max_new_tokens=75, num_beams=3)
+            raw_cap = blip_processor.decode(blip_out[0], skip_special_tokens=True)
+            caption = clean_caption(raw_cap)
             final_label = classification_results.get('final_label', 'unknown')
             yolo_labels = classification_results.get('yolo_labels', [])
             

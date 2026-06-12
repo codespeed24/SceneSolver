@@ -2,6 +2,9 @@
 
 SceneSolver is a production-quality, AI-driven visual surveillance analysis system designed to identify, categorize, and summarize criminal activities or emergencies from uploaded images and videos. By utilizing a hybrid multi-model AI pipeline, SceneSolver automates the extraction of key evidence, classifies the visual context (e.g. robbery, assault, fire), and generates a coherent natural language narrative.
 
+> [!NOTE]
+> **Surveillance Optimization**: The pipeline's classification logic, overriding rules, and caption cleaning filters are optimized and most suitable for **visual surveillance images and security footage**. Using general internet imagery or news photos may occasionally result in model false positives or caption artifacts due to pre-training biases.
+
 Built as a decoupled microservices architecture, the application integrates a **React SPA frontend**, a **Node.js/Express API gateway**, a **MongoDB database**, and a high-performance **Flask AI/ML service** powered by **PyTorch**.
 
 ---
